@@ -1,0 +1,12 @@
+# Arduino CLI binary
+bin/
+
+# Claude AI memory/session files
+.claude/
+
+# Backup files
+*.txt
+*.bak
+
+# macOS
+.DS_Store
