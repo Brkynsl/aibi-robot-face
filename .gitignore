@@ -1,6 +1,18 @@
 # Arduino CLI binary
 bin/
 
+# WiFi kimlik bilgileri (sablon: wifi_config.example.h)
+sketch_may5a/wifi_config.h
+
+# OpenAI API anahtari (sablon: api_config.example.h)
+sketch_may5a/api_config.h
+
+# Derleme ciktilari
+build/
+
+# CP210x USB surucu dosyalari (yerel kurulum icin)
+surucu_cp210x/
+
 # Claude AI memory/session files
 .claude/
 
@@ -10,3 +22,8 @@ bin/
 
 # macOS
 .DS_Store
+
+# Fotograflar (yerel dokumantasyon, repoya gitmez)
+*.jpeg
+*.jpg
+*.png
