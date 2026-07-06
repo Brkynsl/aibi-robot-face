@@ -1,6 +1,12 @@
 # Arduino CLI binary
 bin/
 
+# WiFi kimlik bilgileri (sablon: wifi_config.example.h)
+sketch_may5a/wifi_config.h
+
+# Derleme ciktilari
+build/
+
 # Claude AI memory/session files
 .claude/
 
