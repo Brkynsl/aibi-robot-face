@@ -72,10 +72,31 @@ aibiproje/
 - [x] COM port otomatik tespiti; `-SadeceDerle` ve `-Port COMx` parametreleri
 
 ### 7. Doğrulama
-- [ ] `upload.ps1 -SadeceDerle` ile hatasız derleme
-- [ ] Karta yükleme + seri monitörden donanım testi (I2C tarama, seri komutlar,
-      dokunma/sarsma/ses tepkileri, idle davranışları, FPS kontrolü)
+- [x] `upload.ps1 -SadeceDerle` ile hatasız derleme
+      (Flash: 406.754 bayt / %31 — RAM statik: 24.996 bayt / %7, sprite için ~302 KB boş heap)
+- [x] Karta yükleme başarılı (COM4, CP2102 sürücüsü kuruldu, esptool ile doğrulandı)
+- [x] Seri komut arayüzü doğrulandı: `durum`, `mutlu`, `saskin` komutları çalışıyor
+- [~] MPU6050 ve mikrofon testi ERTELENDİ — modüller ileride değiştirilecek
+      (karar 2026-07-06: ekran ve ESP32-WROOM dışındaki tüm donanım yenilenecek;
+      kod her iki modülün yokluğunu otomatik tolere ediyor, değişiklik gerekmedi)
+- [ ] Dokunma sensörü ve idle davranışlarının gözle testi
 
 ## Değişiklik Günlüğü
 
 - 2026-07-06: Plan oluşturuldu, uygulamaya başlandı.
+- 2026-07-06: Dosya yapısı kuruldu; kod `sketch_may5a/` klasörüne taşındı, `config.h`
+  ve `wifi_config.h` oluşturuldu, WiFi bilgileri repodan çıkarıldı.
+- 2026-07-06: Ana kod revize edildi (bölüm 1-5'teki tüm maddeler) ve SPI 40 MHz yapıldı.
+- 2026-07-06: `upload.ps1` yazıldı; PowerShell 5.1 kodlama sorunu (em dash) düzeltildi.
+- 2026-07-06: Değişiklikler `kod-revizyonu` dalına commit edilip GitHub'a push edildi.
+- 2026-07-06: İlk derleme başarılı (arduino-cli 1.5.1, esp32 çekirdeği, TFT_eSPI 2.5.43).
+- 2026-07-06: Kart takıldı; CP2102 sürücüsü eksik çıktı, sürücü `surucu_cp210x/`
+  klasörüne indirildi — kullanıcının kurması bekleniyor.
+- 2026-07-06: Sürücü kuruldu (COM4); kod karta yüklendi. Açılış logu temiz: sprite
+  oluştu, sistem hazır. Seri komutlar (`durum`/`mutlu`/`saskin`) doğrulandı.
+- 2026-07-06: Donanım bulguları: MPU6050 I2C'de görünmüyor, mikrofon seviyesi 0 —
+  her iki modülün kablolaması kontrol edilecek.
+- 2026-07-06: KARAR — MPU6050 ve mikrofon testleri ertelendi; ekran ve ESP32-WROOM
+  dışındaki tüm modüller ileride yenilenecek. Sistem ekran + dokunma + hoparlör +
+  boşta canlanma ile çalışır durumda teslim edildi. Yeni modüller takıldığında
+  yalnızca `sketch_may5a/config.h` içindeki pinlerin güncellenmesi yeterli.

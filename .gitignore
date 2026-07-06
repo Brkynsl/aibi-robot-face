@@ -7,6 +7,9 @@ sketch_may5a/wifi_config.h
 # Derleme ciktilari
 build/
 
+# CP210x USB surucu dosyalari (yerel kurulum icin)
+surucu_cp210x/
+
 # Claude AI memory/session files
 .claude/
 
