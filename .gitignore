@@ -22,3 +22,8 @@ surucu_cp210x/
 
 # macOS
 .DS_Store
+
+# Fotograflar (yerel dokumantasyon, repoya gitmez)
+*.jpeg
+*.jpg
+*.png
