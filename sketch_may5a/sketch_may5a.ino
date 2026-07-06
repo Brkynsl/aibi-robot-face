@@ -209,6 +209,7 @@ void audioGorev(void* param) {
 //  MIKROFON
 // ============================================================================
 
+#if MODUL_MIK
 void mikGorev(void* param) {
   int32_t samples[128];
   size_t bytes_read;
@@ -225,6 +226,7 @@ void mikGorev(void* param) {
     vTaskDelay(1);
   }
 }
+#endif // MODUL_MIK
 
 // ============================================================================
 //  KURULUM
@@ -248,7 +250,7 @@ void setup() {
     Wire.beginTransmission(adres);
     if (Wire.endTransmission() == 0) {
       Serial.printf("Cihaz bulundu: 0x%02X\n", adres);
-      if (adres == MPU_ADRES) mpuVar = true;
+      if (adres == MPU_ADRES && MODUL_MPU) mpuVar = true;
       bulunan++;
     }
   }
@@ -264,6 +266,7 @@ void setup() {
     Serial.println("MPU6050 bulunamadi — sarsma/egim tespiti devre disi.");
   }
 
+#if MODUL_MIK
   // Mikrofon I2S baslat
   i2s_config_t micConfig = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
@@ -288,6 +291,7 @@ void setup() {
   i2s_set_pin(MIC_I2S_PORT, &micPins);
   i2s_zero_dma_buffer(MIC_I2S_PORT);
   xTaskCreatePinnedToCore(mikGorev, "MIK", 4096, NULL, 1, NULL, 0);
+#endif // MODUL_MIK
 
 #if TTS_AKTIF
   WiFi.begin(WIFI_SSID, WIFI_SIFRE);
@@ -348,6 +352,9 @@ void durumaGec(AibiDurum yeniDurum, unsigned long sure) {
 }
 
 void dokunmaSensoruKontrol() {
+#if !MODUL_DOKUNMA
+  return;
+#endif
   bool simdikiDurum = digitalRead(DOKUNMA_PIN);
   unsigned long simdikiZaman = millis();
 
@@ -699,12 +706,38 @@ void seriKomutIsle(const String& komut) {
   else if (komut == "sag")     durumaGec(SAGA_BAK, 4000);
   else if (komut == "idle")    durumaGec(IDLE, 3000);
   else if (komut == "durum") {
-    Serial.printf("Durum: %s | Ses seviyesi: %ld | MPU: %s\n",
-                  durumAdi(mevcutDurum), (long)sesSeviyesi, mpuVar ? "var" : "yok");
+    Serial.printf("Durum: %s | Ses seviyesi: %ld | MPU: %s | Bos heap: %u bayt\n",
+                  durumAdi(mevcutDurum), (long)sesSeviyesi, mpuVar ? "var" : "yok",
+                  (unsigned)ESP.getFreeHeap());
+    return;
+  }
+  else if (komut == "cevir") {
+#if MODUL_CEVIRI
+    // Asama 5: ceviri modu buradan baslatilacak
+#else
+    Serial.println("Ceviri ozelligi Asama 5'te gelecek (MODUL_CEVIRI=0). Gereken: MAX98357A + INMP441 + OpenAI anahtari.");
+#endif
+    return;
+  }
+  else if (komut == "jest") {
+#if MODUL_APDS
+    // Asama 4: jest simulasyonu buradan tetiklenecek
+#else
+    Serial.println("Jest algisi Asama 4'te gelecek (MODUL_APDS=0). Gereken: APDS-9960 (I2C 0x39).");
+#endif
+    return;
+  }
+  else if (komut == "oksa") {
+#if MODUL_OKSAMA
+    // Asama 3: oksama simulasyonu buradan tetiklenecek
+#else
+    Serial.println("Oksama algisi Asama 3'te gelecek (MODUL_OKSAMA=0). Gereken: 2. TTP223 (GPIO16).");
+#endif
     return;
   }
   else if (komut == "yardim") {
     Serial.println("Komutlar: mutlu uzgun saskin sinirli uykulu merak suphe titre salla sol sag idle durum yardim");
+    Serial.println("Gelecek ozellikler: cevir (Asama 5) | jest (Asama 4) | oksa (Asama 3)");
     return;
   }
   else {

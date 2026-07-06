@@ -4,6 +4,9 @@ bin/
 # WiFi kimlik bilgileri (sablon: wifi_config.example.h)
 sketch_may5a/wifi_config.h
 
+# OpenAI API anahtari (sablon: api_config.example.h)
+sketch_may5a/api_config.h
+
 # Derleme ciktilari
 build/
 
