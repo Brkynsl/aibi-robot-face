@@ -43,9 +43,9 @@
 #define MODUL_MPU     1  // MPU6050 hareket sensoru
 #define MODUL_MIK     1  // INMP441 mikrofon
 #define MODUL_DOKUNMA 1  // TTP223 #1 (tek dokunus = mutlu)
-#define MODUL_OKSAMA  0  // TTP223 #2 takilinca 1 yapin (oksama algisi, Asama 3)
-#define MODUL_AMFI    0  // MAX98357A takilinca 1 yapin (Asama 1) - buzzer devre disi kalir
-#define MODUL_APDS    0  // APDS-9960 takilinca 1 yapin (Asama 4)
+#define MODUL_OKSAMA  1  // TTP223 #2 (GPIO16) - oksama algisi
+#define MODUL_AMFI    1  // MAX98357A I2S amfi - 1 iken GPIO26 BCLK olur, buzzer kullanilamaz
+#define MODUL_APDS    0  // APDS-9960 - ASKIDA (modul alinmadi, gorme ozelligi ertelendi)
 #define MODUL_CEVIRI  0  // Ceviri ozelligi (Asama 5) - MODUL_AMFI ve MODUL_MIK gerektirir
 
 // --- Genel ---

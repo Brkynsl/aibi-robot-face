@@ -61,7 +61,7 @@ Goz solGoz =  {70, 80, 70, 80, 40, 80, 40, 80, 70};
 Goz sagGoz = {210, 80, 210, 80, 40, 80, 40, 80, 210};
 
 // --- Duygu ve Durum Makinesi ---
-enum AibiDurum { IDLE, MUTLU, UZGUN, SASKIN, SINIRLI, UYKULU, KAFASALLA, SOLA_BAK, SAGA_BAK, MERAK, SUPHE, TITREME, DINLIYOR };
+enum AibiDurum { IDLE, MUTLU, UZGUN, SASKIN, SINIRLI, UYKULU, KAFASALLA, SOLA_BAK, SAGA_BAK, MERAK, SUPHE, TITREME, DINLIYOR, TERS, BASI_DONDU, SEVINC };
 AibiDurum mevcutDurum = IDLE;
 unsigned long sonDurumDegisimi = 0;
 unsigned long beklemeSuresi = 3000;
@@ -81,7 +81,7 @@ unsigned long sonKafaSallaZaman = 0;
 unsigned long sesBitisZamani = 0;
 bool sesAktifMi = false;
 
-// Gulme Ses Dizisi
+// Melodiler (frekans Hz, sure ms; 0 Hz = sessiz adim)
 struct TonAdim { int frekans; int sure; };
 const TonAdim GULME_SIRASI[] = {
   {650, 60}, {950, 70}, {0, 45},
@@ -89,6 +89,22 @@ const TonAdim GULME_SIRASI[] = {
   {700, 65}, {1000, 90}, {0, 0}
 };
 const int GULME_ADIM_SAYISI = 9;
+const TonAdim SEVINC_MELODISI[] = {
+  {523, 80}, {659, 80}, {784, 120}, {0, 60},
+  {523, 80}, {659, 80}, {784, 160}, {0, 0}
+};
+const int SEVINC_ADIM_SAYISI = 8;
+const TonAdim SERSEM_MELODISI[] = {
+  {420, 120}, {360, 120}, {300, 130}, {250, 150}, {200, 220}, {0, 0}
+};
+const int SERSEM_ADIM_SAYISI = 6;
+const TonAdim TERS_MELODISI[] = {
+  {180, 200}, {140, 320}, {0, 0}
+};
+const int TERS_ADIM_SAYISI = 3;
+
+const TonAdim* aktifMelodi = nullptr;
+int aktifMelodiUzunluk = 0;
 int aktifAdim = -1;
 unsigned long adimBitisZamani = 0;
 
@@ -101,39 +117,85 @@ volatile bool ttsCal = false;
 volatile bool ttsAktif = false;
 
 // ============================================================================
-//  SES (BUZZER)
+//  SES CIKISI
+//  MODUL_AMFI=1: MAX98357A'ya I2S ile sinüs sentezi (sesGorev)
+//  MODUL_AMFI=0: pasif buzzer'a LEDC PWM (eski yontem)
 // ============================================================================
+
+#if MODUL_AMFI
+volatile int aktifFrekans = 0;  // 0 = sessiz; sesGorev bu degeri surekli okur
+
+void sesGorev(void* param) {
+  const float ORNEK_HIZI = 16000.0f;
+  int16_t ornekler[128];
+  float faz = 0.0f;
+  size_t yazilan;
+  while (true) {
+    int f = aktifFrekans;
+    if (f > 0) {
+      float adim = 2.0f * PI * f / ORNEK_HIZI;
+      for (int i = 0; i < 128; i++) {
+        ornekler[i] = (int16_t)(sinf(faz) * 11000.0f);
+        faz += adim;
+        if (faz > 2.0f * PI) faz -= 2.0f * PI;
+      }
+    } else {
+      memset(ornekler, 0, sizeof(ornekler));
+      faz = 0.0f;
+    }
+    i2s_write(AMFI_I2S_PORT, ornekler, sizeof(ornekler), &yazilan, portMAX_DELAY);
+  }
+}
+#endif
+
+// Tek ton cikisi — alt katmani bayrak secer, cagiranlar farki bilmez
+void tonCal(int frekans) {
+#if MODUL_AMFI
+  aktifFrekans = frekans;
+#else
+  ledcWriteTone(HOPARLOR_PIN, frekans);
+#endif
+}
 
 void sesBaslat(int frekans, int sureMilis) {
   if (ttsAktif) return;
+  aktifMelodi = nullptr;
   aktifAdim = -1;
-  ledcWriteTone(HOPARLOR_PIN, frekans);
+  tonCal(frekans);
   sesBitisZamani = millis() + sureMilis;
   sesAktifMi = true;
 }
 
-void gulmeBaslat() {
+void melodiBaslat(const TonAdim* melodi, int uzunluk) {
+  if (ttsAktif) return;
+  aktifMelodi = melodi;
+  aktifMelodiUzunluk = uzunluk;
   aktifAdim = 0;
-  ledcWriteTone(HOPARLOR_PIN, GULME_SIRASI[0].frekans);
-  adimBitisZamani = millis() + GULME_SIRASI[0].sure;
+  tonCal(melodi[0].frekans);
+  adimBitisZamani = millis() + melodi[0].sure;
   sesAktifMi = true;
+}
+
+void gulmeBaslat() {
+  melodiBaslat(GULME_SIRASI, GULME_ADIM_SAYISI);
 }
 
 void sesKontrol() {
   if (ttsAktif) return;
   unsigned long simdikiZaman = millis();
-  if (aktifAdim >= 0 && simdikiZaman >= adimBitisZamani) {
+  if (aktifMelodi != nullptr && aktifAdim >= 0 && simdikiZaman >= adimBitisZamani) {
     aktifAdim++;
-    if (aktifAdim >= GULME_ADIM_SAYISI) {
+    if (aktifAdim >= aktifMelodiUzunluk) {
+      aktifMelodi = nullptr;
       aktifAdim = -1;
       sesAktifMi = false;
-      ledcWriteTone(HOPARLOR_PIN, 0);
+      tonCal(0);
     } else {
-      ledcWriteTone(HOPARLOR_PIN, GULME_SIRASI[aktifAdim].frekans);
-      adimBitisZamani = simdikiZaman + GULME_SIRASI[aktifAdim].sure;
+      tonCal(aktifMelodi[aktifAdim].frekans);
+      adimBitisZamani = simdikiZaman + aktifMelodi[aktifAdim].sure;
     }
-  } else if (aktifAdim < 0 && sesAktifMi && simdikiZaman >= sesBitisZamani) {
-    ledcWriteTone(HOPARLOR_PIN, 0);
+  } else if (aktifMelodi == nullptr && sesAktifMi && simdikiZaman >= sesBitisZamani) {
+    tonCal(0);
     sesAktifMi = false;
   }
 }
@@ -151,6 +213,9 @@ void durumSesiCal(AibiDurum durum) {
     case SOLA_BAK:
     case SAGA_BAK:   sesBaslat(600, 60);  break;
     case KAFASALLA:  sesBaslat(700, 80);  break;
+    case TERS:       melodiBaslat(TERS_MELODISI, TERS_ADIM_SAYISI);     break;
+    case BASI_DONDU: melodiBaslat(SERSEM_MELODISI, SERSEM_ADIM_SAYISI); break;
+    case SEVINC:     melodiBaslat(SEVINC_MELODISI, SEVINC_ADIM_SAYISI); break;
     default: break; // IDLE: sessiz
   }
 }
@@ -239,8 +304,40 @@ void setup() {
 
   randomSeed(esp_random());
 
+#if MODUL_AMFI
+  // MAX98357A: I2S_NUM_0 TX, 16 kHz / 16-bit mono
+  i2s_config_t amfiConfig = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+    .sample_rate = 16000,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 4,
+    .dma_buf_len = 128,
+    .use_apll = false,
+    .tx_desc_auto_clear = true,
+    .fixed_mclk = 0
+  };
+  i2s_pin_config_t amfiPins = {
+    .mck_io_num   = I2S_PIN_NO_CHANGE,
+    .bck_io_num   = AMFI_BCLK,
+    .ws_io_num    = AMFI_LRC,
+    .data_out_num = AMFI_DIN,
+    .data_in_num  = I2S_PIN_NO_CHANGE
+  };
+  i2s_driver_install(AMFI_I2S_PORT, &amfiConfig, 0, NULL);
+  i2s_set_pin(AMFI_I2S_PORT, &amfiPins);
+  i2s_zero_dma_buffer(AMFI_I2S_PORT);
+  xTaskCreatePinnedToCore(sesGorev, "SES", 4096, NULL, 1, NULL, 0);
+#else
   ledcAttach(HOPARLOR_PIN, 2000, LEDC_COZUNURLUK);
+#endif
+
   pinMode(DOKUNMA_PIN, INPUT);
+#if MODUL_OKSAMA
+  pinMode(DOKUNMA2_PIN, INPUT);
+#endif
 
   // I2C baslat ve tarama yap
   Wire.begin(MPU_SDA, MPU_SCL);
@@ -282,6 +379,7 @@ void setup() {
     .fixed_mclk = 0
   };
   i2s_pin_config_t micPins = {
+    .mck_io_num   = I2S_PIN_NO_CHANGE,
     .bck_io_num   = MIC_SCK,
     .ws_io_num    = MIC_WS,
     .data_out_num = I2S_PIN_NO_CHANGE,
@@ -358,7 +456,32 @@ void dokunmaSensoruKontrol() {
   bool simdikiDurum = digitalRead(DOKUNMA_PIN);
   unsigned long simdikiZaman = millis();
 
-  // Yukselen kenar: dokunma basladi (tekrar tetiklenme icin DOKUNMA_BEKLEME_MS bekleme)
+#if MODUL_OKSAMA
+  // OKSAMA: iki farkli sensor OKSAMA_PENCERE_MS icinde art arda tetiklenirse
+  static bool oncekiDokunma2 = false;
+  static unsigned long sonKenar1 = 0, sonKenar2 = 0;
+  static unsigned long sonSevincZamani = 0;
+  bool simdikiDurum2 = digitalRead(DOKUNMA2_PIN);
+
+  if (simdikiDurum  && !oncekiDokunmaDurumu) sonKenar1 = simdikiZaman;
+  if (simdikiDurum2 && !oncekiDokunma2)      sonKenar2 = simdikiZaman;
+  oncekiDokunma2 = simdikiDurum2;
+
+  if (sonKenar1 != 0 && sonKenar2 != 0) {
+    unsigned long fark = (sonKenar1 > sonKenar2) ? (sonKenar1 - sonKenar2) : (sonKenar2 - sonKenar1);
+    if (fark <= OKSAMA_PENCERE_MS && simdikiZaman - sonSevincZamani > 5000) {
+      sonSevincZamani = simdikiZaman;
+      sonKenar1 = 0;
+      sonKenar2 = 0;
+      durumaGec(SEVINC, 5000);
+      Serial.println("Oksama algilandi!");
+      oncekiDokunmaDurumu = simdikiDurum;
+      return;
+    }
+  }
+#endif
+
+  // TEK DOKUNUS: MUTLU + gulme (tekrar tetiklenme icin DOKUNMA_BEKLEME_MS bekleme)
   if (simdikiDurum && !oncekiDokunmaDurumu && (simdikiZaman - sonDokunmaZamani > DOKUNMA_BEKLEME_MS)) {
     sonDokunmaZamani = simdikiZaman;
     mevcutDurum = MUTLU;
@@ -435,7 +558,7 @@ void gozKirpmaKontrolu() {
   // Rastgele goz kirpma tetiklemesi (2 saniye ile 6 saniye arasi)
   else if (!gozKirpiyorMu && (simdikiZaman - sonGozKirpma > random(2000, 6000))) {
     // Belirli durumlardayken (Idle, Sola/Saga bakma vb.) goz kirp
-    if (mevcutDurum == IDLE || mevcutDurum == SOLA_BAK || mevcutDurum == SAGA_BAK || mevcutDurum == MUTLU || mevcutDurum == MERAK) {
+    if (mevcutDurum == IDLE || mevcutDurum == SOLA_BAK || mevcutDurum == SAGA_BAK || mevcutDurum == MUTLU || mevcutDurum == MERAK || mevcutDurum == SEVINC) {
       gozKirpiyorMu = true;
       sonGozKirpma = simdikiZaman;
       // Goz yuksekliklerini aninda 2 yap (Kapanma efekti)
@@ -539,6 +662,28 @@ void animasyonlariHesapla() {
       }
       break;
     }
+    case TERS:
+      // Bas asagi: gozler yukari kayar, kisilir - "hey, duzelt beni!"
+      bakisYonu(0, -35);
+      if (!gozKirpiyorMu) {
+        solGoz.targetHeight = 45;
+        sagGoz.targetHeight = 45;
+      }
+      break;
+    case BASI_DONDU:
+    {
+      // Sersemlemis: gozler daire cizerek doner
+      float aci = millis() / 150.0;
+      bakisYonu(cos(aci) * 30.0, sin(aci) * 18.0);
+      if (!gozKirpiyorMu) {
+        solGoz.targetHeight = 60;
+        sagGoz.targetHeight = 60;
+      }
+      break;
+    }
+    case SEVINC:
+      bakisYonu(0, -8);
+      break;
   }
 
   gozKirpmaKontrolu();
@@ -546,6 +691,15 @@ void animasyonlariHesapla() {
   // Pozisyonlari hedeflere dogru kaydir
   solGoz.update();
   sagGoz.update();
+}
+
+// Basit kalp: iki daire + ucgen (SEVINC animasyonu icin)
+void kalpCiz(int x, int y, int boyut, uint16_t renk) {
+  spr.fillCircle(x - boyut / 2, y, boyut / 2 + 1, renk);
+  spr.fillCircle(x + boyut / 2, y, boyut / 2 + 1, renk);
+  spr.fillTriangle(x - boyut, y + boyut / 3,
+                   x + boyut, y + boyut / 3,
+                   x, y + boyut + boyut / 2, renk);
 }
 
 void cizimiGuncelle() {
@@ -556,6 +710,8 @@ void cizimiGuncelle() {
   else if (mevcutDurum == UYKULU)   gozRengi = 0x03E0;   // Koyu yesil
   else if (mevcutDurum == TITREME)  gozRengi = 0x05E0;   // Hafif soluk yesil
   else if (mevcutDurum == DINLIYOR) gozRengi = TFT_YELLOW;
+  else if (mevcutDurum == TERS)       gozRengi = 0xFD20; // Turuncu (itiraz)
+  else if (mevcutDurum == BASI_DONDU) gozRengi = 0x07FF; // Camgobegi (sersem)
 
   // SQUASH & STRETCH (Ezilme ve Sunme Fizigi)
   // X eksenindeki hizlarina gore genisleyip basiklasirlar
@@ -595,7 +751,7 @@ void cizimiGuncelle() {
                      sagCizimX + sagCizimW, sagCizimY - 5,
                      sagCizimX - 15, sagCizimY + 30, TFT_BLACK);
   }
-  else if (mevcutDurum == MUTLU && !gozKirpiyorMu) {
+  else if ((mevcutDurum == MUTLU || mevcutDurum == SEVINC) && !gozKirpiyorMu) {
     // Alt kismi daireyle keserek hilal (^ ^) yap
     spr.fillCircle(solCizimX + solCizimW/2, solCizimY + solCizimH + 10, 25, TFT_BLACK);
     spr.fillCircle(sagCizimX + sagCizimW/2, sagCizimY + sagCizimH + 10, 25, TFT_BLACK);
@@ -608,6 +764,14 @@ void cizimiGuncelle() {
     spr.fillTriangle(sagCizimX, sagCizimY - 5,
                      sagCizimX + sagCizimW + 15, sagCizimY - 5,
                      sagCizimX + sagCizimW + 15, sagCizimY + 25, TFT_BLACK);
+  }
+
+  // SEVINC: gozlerin yaninda hafifce ziplayan kalpler
+  if (mevcutDurum == SEVINC && !gozKirpiyorMu) {
+    int zipla = (int)(sin(millis() / 200.0) * 5.0);
+    kalpCiz(38, 60 + zipla, 14, TFT_PINK);
+    kalpCiz(282, 72 - zipla, 11, TFT_PINK);
+    kalpCiz(160, 38 - zipla, 9, TFT_PINK);
   }
 
   // Cizimi ekrana yolla (Titresimi onler)
@@ -632,12 +796,47 @@ void mpuGuncelle() {
   int16_t yZ = Wire.read() << 8 | Wire.read();
   DEBUG_LOG("accX:%d accY:%d accZ:%d egilimX:%.1f egilimY:%.1f\n", yX, yY, yZ, egilimX, egilimY);
 
-  // Sarsma tespiti
   int32_t delta = abs(yX - accX) + abs(yY - accY) + abs(yZ - accZ);
   accX = yX; accY = yY; accZ = yZ;
 
+  // 1) TERS CEVRILME: accZ ~1 sn boyunca kuvvetli negatif (robot bas asagi)
+  static unsigned long tersBaslangici = 0;
+  if (accZ < -8000) {
+    if (tersBaslangici == 0) {
+      tersBaslangici = millis();
+    } else if (millis() - tersBaslangici > 1000 && mevcutDurum != TERS) {
+      durumaGec(TERS, 3000);
+    }
+  } else {
+    tersBaslangici = 0;
+  }
+
+  // 2) BAS DONMESI: X ekseninde ritmik sag-sol salinim (2 sn icinde >=4 yon degisimi)
+  static int sonSalinimYonu = 0;
+  static int yonDegisimSayisi = 0;
+  static unsigned long salinimBaslangici = 0;
+  if (abs(accX) > 6000) {
+    int yon = (accX > 0) ? 1 : -1;
+    if (sonSalinimYonu != 0 && yon != sonSalinimYonu) {
+      if (yonDegisimSayisi == 0) salinimBaslangici = millis();
+      yonDegisimSayisi++;
+    }
+    sonSalinimYonu = yon;
+  }
+  if (yonDegisimSayisi > 0 && millis() - salinimBaslangici > 2000) {
+    yonDegisimSayisi = 0;
+    sonSalinimYonu = 0;
+  }
+  if (yonDegisimSayisi >= 4 && mevcutDurum != BASI_DONDU && mevcutDurum != TERS) {
+    yonDegisimSayisi = 0;
+    sonSalinimYonu = 0;
+    durumaGec(BASI_DONDU, 3500);
+  }
+
+  // 3) SARSMA (ani darbe): TERS ve BASI_DONDU'den dusuk oncelikli
   if (delta > SARSMA_ESIGI && millis() - sonSarsmaZamani > SARSMA_BEKLEME
-      && mevcutDurum != DINLIYOR && mevcutDurum != MUTLU) {
+      && mevcutDurum != DINLIYOR && mevcutDurum != MUTLU
+      && mevcutDurum != TERS && mevcutDurum != BASI_DONDU) {
     sonSarsmaZamani = millis();
     durumaGec((random(2) == 0) ? SASKIN : TITREME, 2000);
   }
@@ -688,6 +887,9 @@ const char* durumAdi(AibiDurum d) {
     case SUPHE:     return "SUPHE";
     case TITREME:   return "TITREME";
     case DINLIYOR:  return "DINLIYOR";
+    case TERS:       return "TERS";
+    case BASI_DONDU: return "BASI_DONDU";
+    case SEVINC:     return "SEVINC";
   }
   return "?";
 }
@@ -705,39 +907,31 @@ void seriKomutIsle(const String& komut) {
   else if (komut == "sol")     durumaGec(SOLA_BAK, 4000);
   else if (komut == "sag")     durumaGec(SAGA_BAK, 4000);
   else if (komut == "idle")    durumaGec(IDLE, 3000);
+  else if (komut == "oksa")    durumaGec(SEVINC, 5000);
+  else if (komut == "ters")    durumaGec(TERS, 3000);
+  else if (komut == "sersem")  durumaGec(BASI_DONDU, 3500);
   else if (komut == "durum") {
-    Serial.printf("Durum: %s | Ses seviyesi: %ld | MPU: %s | Bos heap: %u bayt\n",
+    Serial.printf("Durum: %s | Ses seviyesi: %ld | MPU: %s | acc: %d %d %d | Bos heap: %u bayt\n",
                   durumAdi(mevcutDurum), (long)sesSeviyesi, mpuVar ? "var" : "yok",
-                  (unsigned)ESP.getFreeHeap());
+                  accX, accY, accZ, (unsigned)ESP.getFreeHeap());
     return;
   }
   else if (komut == "cevir") {
 #if MODUL_CEVIRI
     // Asama 5: ceviri modu buradan baslatilacak
 #else
-    Serial.println("Ceviri ozelligi Asama 5'te gelecek (MODUL_CEVIRI=0). Gereken: MAX98357A + INMP441 + OpenAI anahtari.");
+    Serial.println("Ceviri ozelligi Asama 5'te gelecek (MODUL_CEVIRI=0). Gereken: OpenAI anahtari + WiFi.");
 #endif
     return;
   }
   else if (komut == "jest") {
-#if MODUL_APDS
-    // Asama 4: jest simulasyonu buradan tetiklenecek
-#else
-    Serial.println("Jest algisi Asama 4'te gelecek (MODUL_APDS=0). Gereken: APDS-9960 (I2C 0x39).");
-#endif
-    return;
-  }
-  else if (komut == "oksa") {
-#if MODUL_OKSAMA
-    // Asama 3: oksama simulasyonu buradan tetiklenecek
-#else
-    Serial.println("Oksama algisi Asama 3'te gelecek (MODUL_OKSAMA=0). Gereken: 2. TTP223 (GPIO16).");
-#endif
+    Serial.println("Jest algisi ASKIDA (MODUL_APDS=0, APDS-9960 modulu alinmadi).");
     return;
   }
   else if (komut == "yardim") {
-    Serial.println("Komutlar: mutlu uzgun saskin sinirli uykulu merak suphe titre salla sol sag idle durum yardim");
-    Serial.println("Gelecek ozellikler: cevir (Asama 5) | jest (Asama 4) | oksa (Asama 3)");
+    Serial.println("Duygular : mutlu uzgun saskin sinirli uykulu merak suphe titre salla sol sag idle");
+    Serial.println("Yeni     : oksa (kalpli sevinc) | ters (bas asagi) | sersem (bas donmesi)");
+    Serial.println("Bilgi    : durum | yardim   Gelecek: cevir (Asama 5)");
     return;
   }
   else {

@@ -42,6 +42,61 @@ tüm modüller **lehimsiz** (hazır header'lı) seçildi. Sabit kalanlar: ESP32-
 GPIO 12 boot strapping pini olduğu için bilinçli kullanılmadı. Yedek: 17, 34, 36, 39.
 Güç: tüm modüller 3.3V; MAX98357A VIN'e (5V) bağlanabilir (daha gür ses).
 
+## KABLOLAMA REHBERİ (donanım envanteri fotoğraflardan doğrulandı — 2026-07-06)
+
+**Envanter durumu:** ESP32 DevKit 38-pin USB-C ✔ | 2.4" TFT (dokunmatik+SD'li, kullanılmıyor) ✔ |
+MPU6050 header lehimli ✔ | hoparlör kablolu ✔ | breadboard ×2 ✔ |
+MAX98357A + INMP441 + 2×TTP223 **header'ları lehimsiz** ⚠ → geçici temas çözümü uygulanıyor
+(bacak deliğe geçirilip ~15° bükülür, jumper sıkıştırılır; temas oynayabilir, kalıcı çözüm lehim/PCB).
+
+**ESP32 kart etiketi eşlemesi:** Karttaki `G21` = GPIO21. `V5` = 5V, `3V3` = 3.3V.
+
+**Güç rayları:** ESP32 `3V3` → breadboard kırmızı (+) ray, ESP32 `GND` → mavi (−) ray.
+Tüm modül VCC/VDD'leri (+) raydan, tüm GND'ler (−) raydan alınır.
+
+| Modül | Modül pini | Nereye | Not |
+|-------|-----------|--------|-----|
+| TFT | VCC | 3.3V (+) ray | |
+| TFT | GND | (−) ray | |
+| TFT | CS | G15 | |
+| TFT | RESET | G4 | |
+| TFT | DC | G2 | |
+| TFT | SDI (MOSI) | G23 | |
+| TFT | SCK | G18 | |
+| TFT | LED | 3.3V (+) ray | arka ışık |
+| TFT | SDO (MISO) | G19 | opsiyonel, boş da kalabilir |
+| TFT | T_CLK, T_CS, T_DIN, T_DO, T_IRQ | **BOŞ** | dokunmatik kullanılmıyor |
+| TFT (arka) | SD_SCK, SD_MISO, SD_MOSI, SD_CS | **BOŞ** | SD kart kullanılmıyor |
+| MPU6050 | VCC | 3.3V (+) ray | |
+| MPU6050 | GND | (−) ray | |
+| MPU6050 | SCL | G22 | **unutulmasın!** (ilk kurulumda eksikti) |
+| MPU6050 | SDA | G21 | **unutulmasın!** |
+| MPU6050 | XDA, XCL, AD0, INT | **BOŞ** | |
+| INMP441 | VDD | 3.3V (+) ray | 5V'a BAĞLAMAYIN |
+| INMP441 | GND | (−) ray | |
+| INMP441 | L/R | (−) ray (GND) | sol kanal seçimi |
+| INMP441 | SCK | G14 | |
+| INMP441 | WS | G27 | |
+| INMP441 | SD | G32 | |
+| MAX98357A | Vin | V5 (5V) | 3.3V de çalışır, 5V daha gür |
+| MAX98357A | GND | (−) ray | |
+| MAX98357A | BCLK | G26 | |
+| MAX98357A | LRC | G25 | |
+| MAX98357A | DIN | G33 | |
+| MAX98357A | GAIN, SD | **BOŞ** | varsayılan kazanç, çıkış aktif |
+| MAX98357A | hoparlör + | hoparlör kırmızı | klemens/delikten büküm |
+| MAX98357A | hoparlör − | hoparlör siyah | |
+| TTP223 #1 | VCC | 3.3V (+) ray | |
+| TTP223 #1 | GND | (−) ray | |
+| TTP223 #1 | I/O | G13 | |
+| TTP223 #2 | VCC | 3.3V (+) ray | |
+| TTP223 #2 | GND | (−) ray | |
+| TTP223 #2 | I/O | G16 | #1'in 1-2 cm yanına yerleştirin (okşama) |
+| TTP223 (her ikisi) | A, B pedleri | **DOKUNMAYIN** | varsayılan an-tetik modu doğru |
+
+**Breadboard kuralı:** Her satırın a-e ve f-j yarıları ortadaki olukla AYRIKTIR.
+Jumper, modül bacağıyla AYNI satırın AYNI yarısına takılmalı.
+
 ## RAM Bütçesi Notu
 
 Sprite 77 KB + WiFi ~50 KB + TLS ~45 KB + ses tamponu (32 KB/sn, hedef 4-6 sn).
@@ -57,21 +112,25 @@ mod bitince yeniden oluşturulur.
 - [x] Kütüphaneler: ESP8266Audio 2.4.1, ArduinoJson 7.4.3, SparkFun APDS9960 1.4.2
 - [x] Derleme doğrulaması: bayraklar açıkken %31, tümü kapalıyken %29 flash — iki durum da temiz
 
-### Aşama 1 — Ses sistemi (MAX98357A)
-- [ ] LEDC buzzer → I2S ton sentezi (`sesBaslat`/`gulmeBaslat` arayüzü korunur)
-- [ ] MP3 çalma altyapısı (ESP8266Audio → I2S_NUM_0)
+### Aşama 1 — Ses sistemi (MAX98357A) ✅ KOD TAMAM (donanım testi bekliyor)
+- [x] LEDC buzzer → I2S sinüs sentezi (`sesGorev` görevi; `sesBaslat`/`gulmeBaslat` arayüzü korundu)
+- [x] Melodi altyapısı genelleştirildi (gülme + sevinç + sersem + ters melodileri)
+- [ ] MP3 çalma altyapısı (Aşama 5 ile birlikte gelecek)
 - [ ] Donanım testi: tüm duygu sesleri hoparlörden
 
-### Aşama 2 — IMU davranışları (MPU6050)
-- [ ] Ters çevrilme: accZ ~1 sn negatif → `TERS` (gözler ters, itiraz sesi)
-- [ ] Sallanma: X ekseninde ritmik salınım → `BASI_DONDU` (spiral gözler, 3-4 sn)
-- [ ] Mevcut sarsma korunur; üç tespit öncelik sırasına bağlanır
+### Aşama 2 — IMU davranışları (MPU6050) ✅ KOD TAMAM (donanım testi bekliyor)
+- [x] Ters çevrilme: accZ ~1 sn < −8000 → `TERS` (turuncu kısık gözler yukarıda, itiraz sesi)
+- [x] Sallanma: 2 sn'de ≥4 yön değişimi → `BASI_DONDU` (camgöbeği dönen gözler, sarhoş melodisi)
+- [x] Öncelik: TERS > BASI_DONDU > SARSMA (SASKIN/TITREME korundu)
+- [x] `durum` komutu ham accX/accY/accZ basıyor (eşik kalibrasyonu için)
+- [ ] Donanım testi: elle ters çevirme / sallama
 
-### Aşama 3 — Okşama (2× TTP223)
-- [ ] İki sensör ≤800 ms arayla → `SEVINC` (kalp animasyonu + neşe melodisi)
-- [ ] Tek dokunuş = mevcut MUTLU davranışı kalır
+### Aşama 3 — Okşama (2× TTP223) ✅ KOD TAMAM (donanım testi bekliyor)
+- [x] İki farklı sensör ≤800 ms arayla → `SEVINC` 5 sn (hilal gözler + 3 zıplayan pembe kalp + neşe melodisi)
+- [x] Tek dokunuş = mevcut MUTLU davranışı korundu
+- [ ] Donanım testi: iki sensöre sırayla dokunma
 
-### Aşama 4 — "Görme" (APDS-9960)
+### Aşama 4 — "Görme" (APDS-9960) ⏸ ASKIDA (modül alınmadı — karar 2026-07-06)
 - [ ] El sallama → selamlaşma; yaklaşma → MERAK; karanlık → UYKULU, ışıkta uyanma
 - [ ] 0x39 oto-algı (`apdsVar`, mpuVar deseniyle)
 
@@ -109,3 +168,10 @@ Tek dosyalık orijinal kod revize edildi. Yapılanlar:
   OpenAI API (çeviri zinciri), MAX98357A (ses), 2×TTP223 (okşama), MPU6050 (hareket).
 - 2026-07-06: v2 Aşama 0 tamamlandı: modül bayrakları, v2 pin haritası, api_config
   şablonu, yer tutucu seri komutlar, 3 kütüphane kuruldu, çift yönlü derleme doğrulandı.
+- 2026-07-06: Modüller geldi (8 fotoğrafla envanter doğrulandı). GÖRME ASKIYA ALINDI
+  (APDS-9960 alınmamış). Amfi/mikrofon/dokunmatik header'ları lehimsiz → geçici temas
+  çözümü kararlaştırıldı. Kablolama rehberi bu dosyaya eklendi.
+- 2026-07-06: Aşama 1+2+3 kodları yazıldı: I2S sinüs sentezi + melodi altyapısı
+  (MODUL_AMFI=1), TERS/BASI_DONDU tespiti ve animasyonları, SEVINC okşama algısı
+  (MODUL_OKSAMA=1). Yeni seri komutlar: oksa/ters/sersem. Çift derleme temiz
+  (bayraklar açık %30, kapalı %30). Donanım testleri kablolama sonrası yapılacak.
