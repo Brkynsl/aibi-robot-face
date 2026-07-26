@@ -18,14 +18,19 @@ import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { FeatureExperience } from './FeatureExperiences';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 type Tab = 'features' | 'modes' | 'pet' | 'settings';
 type Theme = 'light' | 'dark';
 type PetProfile = { connected: boolean; name: string };
-type PetExpression = 'blink' | 'curious' | 'sparkle';
-type PetMotion = 'still' | 'soft' | 'dance';
+type PetExpression = 'blink' | 'curious' | 'sparkle' | 'sleepy' | 'love' | 'excited' | 'shy' | 'focused' | 'cheerful' | 'calm';
+type PetMotion = 'still' | 'soft' | 'dance' | 'bounce' | 'sway' | 'pulse';
+type AmbientSound = 'none' | 'rain' | 'fire';
+type PetStats = { happiness: number; energy: number; battery: number };
 type AppPreferences = {
   notifications: boolean;
   autoConnect: boolean;
@@ -43,6 +48,19 @@ type Feature = {
   headline: string;
   sample: string;
   action: string;
+};
+
+const expressionVisuals: Record<PetExpression, { label: string; icon: IconName; color: string }> = {
+  blink: { label: 'NEŞELİ', icon: 'happy', color: '#00A8CA' },
+  curious: { label: 'MERAKLI', icon: 'search', color: '#7C5CE5' },
+  sparkle: { label: 'PARILTI', icon: 'sparkles', color: '#A45DE1' },
+  sleepy: { label: 'UYKULU', icon: 'moon', color: '#5367B8' },
+  love: { label: 'SEVGİ DOLU', icon: 'heart', color: '#E65C87' },
+  excited: { label: 'HEYECANLI', icon: 'flash', color: '#EF9737' },
+  shy: { label: 'UTANGAÇ', icon: 'flower', color: '#D66BAA' },
+  focused: { label: 'ODAKLI', icon: 'scan', color: '#258E9C' },
+  cheerful: { label: 'KAHKAHA', icon: 'happy-outline', color: '#21A978' },
+  calm: { label: 'HUZURLU', icon: 'leaf', color: '#4C9B76' },
 };
 
 const featureData: Feature[] = [
@@ -63,11 +81,10 @@ const featureData: Feature[] = [
 ];
 
 const modeData: { title: string; desc: string; icon: IconName; colors: [string, string]; badge?: string }[] = [
-  { title: 'Pet modu', desc: 'Oyun, bakım ve duygusal bağ', icon: 'paw', colors: ['#00C7EC', '#4E91F5'], badge: 'AKTİF' },
-  { title: 'Asistan modu', desc: 'Planla, sor ve üretken kal', icon: 'sparkles', colors: ['#7D5CE5', '#AA78F2'] },
-  { title: 'Gece asistanı', desc: 'Sessiz, loş ve sakin bir gece', icon: 'moon', colors: ['#263C79', '#6E58B5'] },
-  { title: 'Lumina GO', desc: 'Dışarıda keşfet, dostları yakala', icon: 'navigate-circle', colors: ['#19B781', '#00A9C9'], badge: 'YENİ' },
-  { title: 'Ebeveyn modu', desc: 'Çocuklar için güvenli alan', icon: 'shield-checkmark', colors: ['#F19B42', '#EB668A'] },
+  { title: 'Pet modu', desc: 'Oyun, bakım ve duygusal bağ', icon: 'paw', colors: ['#00B7D7', '#397BE8'], badge: 'AKTİF' },
+  { title: 'Asistan modu', desc: 'Planla, sor ve üretken kal', icon: 'sparkles', colors: ['#7255D9', '#9B6DE7'] },
+  { title: 'Atmosfer modu', desc: 'Yağmur, şömine ve odak sesleri', icon: 'flame', colors: ['#D36A38', '#7D4DAD'], badge: 'SES' },
+  { title: 'Çocuk modu', desc: 'Çocuklar için güvenli ve sade alan', icon: 'shield-checkmark', colors: ['#E98E35', '#DE5E82'] },
 ];
 
 type ModeItem = (typeof modeData)[number];
@@ -80,7 +97,7 @@ const tabs: { key: Tab; label: string; icon: IconName }[] = [
 ];
 
 const light = { bg: '#F4F8FA', card: 'rgba(255,255,255,0.82)', cardSolid: '#FFFFFF', text: '#172126', muted: '#68777D', line: 'rgba(108,121,127,0.14)', nav: 'rgba(252,254,255,0.94)', input: '#EDF3F5', cyanSoft: '#DDF8FF' };
-const dark = { bg: '#101719', card: 'rgba(29,39,43,0.91)', cardSolid: '#1B2529', text: '#F2F7F8', muted: '#9CAEB4', line: 'rgba(187,201,207,0.12)', nav: 'rgba(20,29,32,0.96)', input: '#253237', cyanSoft: '#123941' };
+const dark = { bg: '#071116', card: 'rgba(17,31,38,0.94)', cardSolid: '#102129', text: '#F3FAFC', muted: '#8FA8B2', line: 'rgba(129,205,226,0.13)', nav: 'rgba(8,22,28,0.97)', input: '#192D35', cyanSoft: '#0B3541' };
 
 function GlassCard({ children, style, onPress }: { children: React.ReactNode; style?: any; onPress?: () => void }) {
   if (onPress) {
@@ -98,8 +115,8 @@ function PetFace({ size = 124, eyeColor = '#17353E', expression = 'blink', motio
   const blinkValue = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const distance = motion === 'dance' ? 8 : motion === 'soft' ? 3 : 0;
-    const duration = motion === 'dance' ? 260 : 1200;
+    const distance = motion === 'bounce' ? 12 : motion === 'dance' ? 8 : motion === 'pulse' || motion === 'sway' ? 4 : motion === 'soft' ? 3 : 0;
+    const duration = motion === 'bounce' ? 430 : motion === 'dance' ? 260 : motion === 'sway' ? 680 : motion === 'pulse' ? 820 : 1200;
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(floatValue, { toValue: distance, duration, useNativeDriver: true }),
@@ -122,28 +139,45 @@ function PetFace({ size = 124, eyeColor = '#17353E', expression = 'blink', motio
     return () => animation.stop();
   }, [blinkValue, expression]);
 
-  const eyeHeight = blinkValue.interpolate({ inputRange: [0, 1], outputRange: [22, 3] });
-  const rotate = motion === 'dance'
-    ? floatValue.interpolate({ inputRange: [0, 8], outputRange: ['-3deg', '3deg'] })
+  const baseEyeHeight = expression === 'sleepy' ? 8 : expression === 'calm' ? 12 : expression === 'excited' ? 26 : expression === 'shy' ? 17 : 22;
+  const eyeHeight = blinkValue.interpolate({ inputRange: [0, 1], outputRange: [baseEyeHeight, 3] });
+  const motionDistance = motion === 'bounce' ? 12 : motion === 'dance' ? 8 : 4;
+  const rotate = motion === 'dance' || motion === 'sway'
+    ? floatValue.interpolate({ inputRange: [0, motionDistance], outputRange: [motion === 'sway' ? '-7deg' : '-3deg', motion === 'sway' ? '7deg' : '3deg'] })
     : '0deg';
+  const scale = motion === 'pulse'
+    ? floatValue.interpolate({ inputRange: [0, 4], outputRange: [1, 1.055] })
+    : 1;
 
   return (
-    <Animated.View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: floatValue }, { rotate }] }}>
+    <Animated.View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: floatValue }, { rotate }, { scale }] }}>
       <View style={[styles.ear, { left: size * 0.12, transform: [{ rotate: '-22deg' }], width: size * 0.34, height: size * 0.4 }]} />
       <View style={[styles.ear, { right: size * 0.12, transform: [{ rotate: '22deg' }], width: size * 0.34, height: size * 0.4 }]} />
       <LinearGradient colors={['#F2FBFF', '#BDEFFF']} style={[styles.petHead, { width: size * 0.78, height: size * 0.68, borderRadius: size * 0.3 }]}>
-        <View style={styles.eyeRow}>
-          <Animated.View style={[styles.eye, { backgroundColor: eyeColor, height: eyeHeight }]}>
-            <View style={styles.eyeGlint} />
-          </Animated.View>
-          <Animated.View style={[styles.eye, { backgroundColor: eyeColor, height: expression === 'curious' ? 15 : eyeHeight, transform: [{ rotate: expression === 'curious' ? '-8deg' : '0deg' }] }]}>
-            <View style={styles.eyeGlint} />
-          </Animated.View>
-        </View>
-        <View style={styles.mouth}>
+        {expression === 'love' ? (
+          <View style={styles.eyeRow}>
+            <Ionicons name="heart" size={24} color={eyeColor} />
+            <Ionicons name="heart" size={24} color={eyeColor} />
+          </View>
+        ) : expression === 'cheerful' ? (
+          <View style={styles.eyeRow}>
+            <View style={[styles.cheerfulEye, { borderColor: eyeColor }]} />
+            <View style={[styles.cheerfulEye, { borderColor: eyeColor }]} />
+          </View>
+        ) : (
+          <View style={styles.eyeRow}>
+            <Animated.View style={[styles.eye, { backgroundColor: eyeColor, height: eyeHeight, transform: [{ rotate: expression === 'focused' ? '8deg' : expression === 'shy' ? '-5deg' : '0deg' }] }]}>
+              <View style={[styles.eyeGlint, expression === 'shy' && { alignSelf: 'flex-start' }]} />
+            </Animated.View>
+            <Animated.View style={[styles.eye, { backgroundColor: eyeColor, height: expression === 'curious' ? 15 : eyeHeight, transform: [{ rotate: expression === 'curious' || expression === 'focused' ? '-8deg' : expression === 'shy' ? '5deg' : '0deg' }] }]}>
+              <View style={styles.eyeGlint} />
+            </Animated.View>
+          </View>
+        )}
+        <View style={[styles.mouth, expression === 'sleepy' && styles.sleepyMouth, expression === 'excited' && styles.excitedMouth]}>
           <View style={styles.tongue} />
         </View>
-        {expression === 'sparkle' ? (
+        {expression === 'sparkle' || expression === 'excited' ? (
           <View style={styles.sparkleBadge}>
             <Ionicons name="sparkles" size={12} color="#8B62E8" />
           </View>
@@ -151,6 +185,34 @@ function PetFace({ size = 124, eyeColor = '#17353E', expression = 'blink', motio
       </LinearGradient>
       <View style={[styles.petGlow, { width: size * 0.7, height: size * 0.15 }]} />
     </Animated.View>
+  );
+}
+
+function PetMoodAura({ color, expression }: { color: string; expression: PetExpression }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  const visual = expressionVisuals[expression];
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: expression === 'excited' ? 700 : 1500, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: expression === 'excited' ? 700 : 1500, useNativeDriver: true }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [expression, pulse]);
+
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.08] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0.16] });
+  return (
+    <View pointerEvents="none" style={styles.petAuraWrap}>
+      <Animated.View style={[styles.petAuraOuter, { borderColor: `${visual.color}55`, opacity, transform: [{ scale }] }]} />
+      <View style={[styles.petAuraMiddle, { borderColor: `${color}42`, backgroundColor: `${color}0B` }]} />
+      <LinearGradient colors={[`${visual.color}1C`, `${color}10`, 'rgba(255,255,255,0)']} style={styles.petAuraCore} />
+      <View style={[styles.petAuraSpark, styles.petAuraSparkOne, { backgroundColor: visual.color }]} />
+      <View style={[styles.petAuraSpark, styles.petAuraSparkTwo, { backgroundColor: color }]} />
+    </View>
   );
 }
 
@@ -478,7 +540,23 @@ function Modes({ c, onSelect }: { c: typeof light; onSelect: (title: string) => 
   );
 }
 
-function ModeDetail({ mode, c, onBack }: { mode: ModeItem; c: typeof light; onBack: () => void }) {
+function ModeDetail({
+  mode,
+  c,
+  onBack,
+  expression,
+  onExpressionChange,
+  ambientSound,
+  onAmbientSound,
+}: {
+  mode: ModeItem;
+  c: typeof light;
+  onBack: () => void;
+  expression: PetExpression;
+  onExpressionChange: (value: PetExpression) => void;
+  ambientSound: AmbientSound;
+  onAmbientSound: (value: AmbientSound) => void;
+}) {
   const [enabled, setEnabled] = useState(mode.title === 'Pet modu');
   const [smartResponses, setSmartResponses] = useState(true);
   const [voiceFeedback, setVoiceFeedback] = useState(true);
@@ -488,14 +566,40 @@ function ModeDetail({ mode, c, onBack }: { mode: ModeItem; c: typeof light; onBa
   const copy: Record<string, { headline: string; status: string; routine: string }> = {
     'Pet modu': { headline: 'Milo daha oyuncu, ilgili ve sosyal davranır.', status: 'Oyun ve etkileşim davranışları', routine: 'Her gün 18:30 · Oyun zamanı' },
     'Asistan modu': { headline: 'Planlarını düzenler ve odaklanmana yardım eder.', status: 'Üretkenlik ve sesli asistan', routine: 'Hafta içi 09:00 · Gün planı' },
-    'Gece asistanı': { headline: 'Işık, ses ve hareketleri geceye göre sakinleştirir.', status: 'Sessiz komut ve loş bildirimler', routine: 'Her gün 22:30 · Gece rutini' },
-    'Lumina GO': { headline: 'Dışarıdaki keşifleri ve hareket hedeflerini takip eder.', status: 'Konum ve aktivite davranışları', routine: 'Cumartesi 11:00 · Keşif turu' },
-    'Ebeveyn modu': { headline: 'İçerik ve komutları çocuklar için güvenli tutar.', status: 'Güvenli içerik ve süre sınırı', routine: 'Her gün 20:00 · Dinlenme zamanı' },
+    'Atmosfer modu': { headline: 'Yağmur ve şömine sesleri robotun göz ritmiyle senkron çalışır.', status: 'Ortam sesi ve göz animasyonu', routine: 'Her gün 21:30 · Sakinleşme zamanı' },
+    'Çocuk modu': { headline: 'İçerik ve komutları çocuklar için güvenli ve anlaşılır tutar.', status: 'Güvenli içerik ve süre sınırı', routine: 'Her gün 20:00 · Dinlenme zamanı' },
   };
   const detail = copy[mode.title];
+  const behaviorCopy: Record<string, { title: string; sub: string; icon: IconName }[]> = {
+    'Pet modu': [
+      { title: 'Duygusal tepkiler', sub: 'Bakım ve oyuna yüz ifadesiyle karşılık verir', icon: 'happy' },
+      { title: 'Sesli geri bildirim', sub: 'Besleme ve oyun seslerini oynatır', icon: 'volume-high' },
+      { title: 'Otomatik oyun', sub: 'Enerjisi yüksekken oyun önerir', icon: 'game-controller' },
+    ],
+    'Asistan modu': [
+      { title: 'Akıllı özetler', sub: 'Plan ve notlardan kısa özet çıkarır', icon: 'sparkles' },
+      { title: 'Sesli yanıtlar', sub: 'Komutlardan sonra kısa yanıt verir', icon: 'mic' },
+      { title: 'Odak rutini', sub: 'Takvimine göre sessiz odak açar', icon: 'timer' },
+    ],
+    'Atmosfer modu': [
+      { title: 'Göz senkronu', sub: 'Gözler ortam sesinin ritmine eşlik eder', icon: 'eye' },
+      { title: 'Yumuşak geçiş', sub: 'Sesler açılıp kapanırken yavaşça geçiş yapar', icon: 'pulse' },
+      { title: 'Otomatik rutin', sub: 'Belirlenen saatte ortamı hazırlar', icon: 'time' },
+    ],
+    'Çocuk modu': [
+      { title: 'Güvenli yanıtlar', sub: 'Yaşa uygun içerik ve açıklamalar kullanır', icon: 'shield-checkmark' },
+      { title: 'Ses sınırı', sub: 'Maksimum ses seviyesini korur', icon: 'volume-low' },
+      { title: 'Süre yönetimi', sub: 'Günlük kullanım süresini takip eder', icon: 'hourglass' },
+    ],
+  };
+  const behaviorRows = behaviorCopy[mode.title];
   const save = () => {
-    setEnabled(true);
     setSaved(true);
+  };
+  const changeAmbient = (sound: AmbientSound) => {
+    setEnabled(sound !== 'none');
+    onAmbientSound(sound);
+    onExpressionChange(sound === 'fire' ? 'sparkle' : sound === 'rain' ? 'curious' : 'blink');
   };
   return (
     <View>
@@ -513,8 +617,15 @@ function ModeDetail({ mode, c, onBack }: { mode: ModeItem; c: typeof light; onBa
             <Text style={styles.modeLiveText}>{enabled ? 'AKTİF' : 'KAPALI'}</Text>
           </View>
         </View>
-        <Text style={styles.modeDetailTitle}>{mode.title}</Text>
-        <Text style={styles.modeDetailHeadline}>{detail.headline}</Text>
+        <View style={styles.modeHeroContent}>
+          <View style={styles.modeHeroCopy}>
+            <Text style={styles.modeDetailTitle}>{mode.title}</Text>
+            <Text style={styles.modeDetailHeadline}>{detail.headline}</Text>
+          </View>
+          <View style={styles.modePetPreview}>
+            <PetFace size={102} expression={expression} motion={mode.title === 'Pet modu' ? 'dance' : 'soft'} eyeColor="#17495A" />
+          </View>
+        </View>
       </LinearGradient>
       <View style={[styles.modeMasterCard, { backgroundColor: c.card, borderColor: c.line }]}>
         <View style={[styles.settingIcon, { backgroundColor: `${mode.colors[0]}18` }]}>
@@ -525,16 +636,39 @@ function ModeDetail({ mode, c, onBack }: { mode: ModeItem; c: typeof light; onBa
           <Text style={[styles.settingSub, { color: c.muted }]}>{detail.status}</Text>
         </View>
         <View style={styles.settingControl}>
-          <Switch value={enabled} onValueChange={setEnabled} trackColor={{ false: '#C8D3D7', true: mode.colors[0] }} thumbColor="#fff" />
+          <Switch value={enabled} onValueChange={(value) => { setEnabled(value); if (!value && mode.title === 'Atmosfer modu') changeAmbient('none'); }} trackColor={{ false: '#C8D3D7', true: mode.colors[0] }} thumbColor="#fff" />
         </View>
       </View>
+      {mode.title === 'Atmosfer modu' ? (
+        <>
+          <Text style={[styles.settingLabel, { color: c.muted }]}>ORTAM SESİ & GÖZ SENKRONU</Text>
+          <View style={styles.ambientGrid}>
+            {[
+              { key: 'rain' as AmbientSound, title: 'Yağmur', sub: 'Yavaş göz kırpma', icon: 'rainy' as IconName, color: '#3E91DF' },
+              { key: 'fire' as AmbientSound, title: 'Şömine', sub: 'Sıcak parıltı', icon: 'flame' as IconName, color: '#EA7436' },
+              { key: 'none' as AmbientSound, title: 'Sessizlik', sub: 'Doğal ifade', icon: 'volume-mute' as IconName, color: '#72858C' },
+            ].map((sound) => {
+              const active = ambientSound === sound.key;
+              return (
+                <Pressable key={sound.key} onPress={() => changeAmbient(sound.key)} style={[styles.ambientCard, { backgroundColor: c.card, borderColor: active ? sound.color : c.line }]}>
+                  <View style={[styles.ambientIcon, { backgroundColor: `${sound.color}18` }]}>
+                    <Ionicons name={sound.icon} size={25} color={sound.color} />
+                  </View>
+                  <Text style={[styles.ambientTitle, { color: c.text }]}>{sound.title}</Text>
+                  <Text style={[styles.ambientSub, { color: c.muted }]}>{sound.sub}</Text>
+                  {active ? <View style={[styles.ambientActive, { backgroundColor: sound.color }]}><Ionicons name="checkmark" size={11} color="#fff" /></View> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
       <Text style={[styles.settingLabel, { color: c.muted }]}>MOD DAVRANIŞLARI</Text>
       <View style={[styles.settingGroup, { backgroundColor: c.card, borderColor: c.line }]}>
-        {[
-          { title: 'Akıllı tepkiler', sub: 'Duruma göre davranışını otomatik ayarlar', icon: 'sparkles' as IconName, value: smartResponses, set: setSmartResponses },
-          { title: 'Sesli geri bildirim', sub: 'Komutlardan sonra kısa sesli yanıt verir', icon: 'volume-high' as IconName, value: voiceFeedback, set: setVoiceFeedback },
-          { title: 'Otomatik rutin', sub: 'Belirlenen saatte modu kendisi açar', icon: 'time' as IconName, value: autoRoutine, set: setAutoRoutine },
-        ].map((row, index, rows) => (
+        {behaviorRows.map((row, index, rows) => {
+          const values = [smartResponses, voiceFeedback, autoRoutine];
+          const setters = [setSmartResponses, setVoiceFeedback, setAutoRoutine];
+          return (
           <View key={row.title} style={[styles.settingRow, index < rows.length - 1 && { borderBottomWidth: 1, borderBottomColor: c.line }]}>
             <View style={[styles.settingIcon, { backgroundColor: `${mode.colors[0]}18` }]}>
               <Ionicons name={row.icon} size={21} color={mode.colors[0]} />
@@ -544,10 +678,11 @@ function ModeDetail({ mode, c, onBack }: { mode: ModeItem; c: typeof light; onBa
               <Text style={[styles.settingSub, { color: c.muted }]}>{row.sub}</Text>
             </View>
             <View style={styles.settingControl}>
-              <Switch value={row.value} onValueChange={row.set} trackColor={{ false: '#C8D3D7', true: mode.colors[0] }} thumbColor="#fff" />
+              <Switch value={values[index]} onValueChange={setters[index]} trackColor={{ false: '#C8D3D7', true: mode.colors[0] }} thumbColor="#fff" />
             </View>
           </View>
-        ))}
+          );
+        })}
       </View>
       <Text style={[styles.settingLabel, { color: c.muted }]}>ETKİLEŞİM YOĞUNLUĞU</Text>
       <View style={[styles.modeSegment, { backgroundColor: c.input }]}>
@@ -606,48 +741,224 @@ function ChoiceRow({ title, choices, selected, c, onChange, onPremium }: { title
   );
 }
 
-function PetCustomize({ c, pet, onPremium }: { c: typeof light; pet: PetProfile; onPremium: (title: string) => void }) {
+type VoiceProfile = {
+  id: string;
+  title: string;
+  group: 'Kadın' | 'Erkek' | 'Karakter';
+  desc: string;
+  icon: IconName;
+  color: string;
+};
+
+const voiceProfiles: VoiceProfile[] = [
+  { id: 'lila', title: 'Lila', group: 'Kadın', desc: 'Doğal Türkçe · sıcak', icon: 'woman', color: '#E95D91' },
+  { id: 'ada', title: 'Ada', group: 'Kadın', desc: 'Genç · canlı ve parlak', icon: 'sparkles', color: '#A55BE0' },
+  { id: 'masal', title: 'Masal', group: 'Kadın', desc: 'Yumuşak · anlatıcı', icon: 'book', color: '#D36DB1' },
+  { id: 'deniz', title: 'Deniz', group: 'Kadın', desc: 'Dengeli · sakin', icon: 'woman-outline', color: '#22A77B' },
+  { id: 'atlas', title: 'Atlas', group: 'Erkek', desc: 'Tok · güven veren', icon: 'man', color: '#397BE8' },
+  { id: 'ege', title: 'Ege', group: 'Erkek', desc: 'Derin · ağırbaşlı', icon: 'mic', color: '#24699E' },
+  { id: 'mert', title: 'Mert', group: 'Erkek', desc: 'Enerjik · arkadaş canlısı', icon: 'flash', color: '#00A6A0' },
+  { id: 'mini', title: 'Mini', group: 'Karakter', desc: 'Çocuk · minik ve sevimli', icon: 'happy', color: '#F08A45' },
+  { id: 'robot', title: 'Robotik', group: 'Karakter', desc: 'Dijital · metalik', icon: 'hardware-chip', color: '#00A8CA' },
+  { id: 'uyku', title: 'Uyku', group: 'Karakter', desc: 'Fısıltı · çok sakin', icon: 'moon', color: '#6E58B5' },
+];
+
+type VoiceAction = 'preview' | 'feed' | 'play';
+type VoiceAudioSet = Record<VoiceAction, number>;
+
+const voiceAudioSources: Record<string, VoiceAudioSet> = {
+  lila: { preview: require('./assets/voices/lila-preview.wav'), feed: require('./assets/voices/lila-feed.wav'), play: require('./assets/voices/lila-play.wav') },
+  ada: { preview: require('./assets/voices/ada-preview.wav'), feed: require('./assets/voices/ada-feed.wav'), play: require('./assets/voices/ada-play.wav') },
+  masal: { preview: require('./assets/voices/masal-preview.wav'), feed: require('./assets/voices/masal-feed.wav'), play: require('./assets/voices/masal-play.wav') },
+  deniz: { preview: require('./assets/voices/deniz-preview.wav'), feed: require('./assets/voices/deniz-feed.wav'), play: require('./assets/voices/deniz-play.wav') },
+  atlas: { preview: require('./assets/voices/atlas-preview.wav'), feed: require('./assets/voices/atlas-feed.wav'), play: require('./assets/voices/atlas-play.wav') },
+  ege: { preview: require('./assets/voices/ege-preview.wav'), feed: require('./assets/voices/ege-feed.wav'), play: require('./assets/voices/ege-play.wav') },
+  mert: { preview: require('./assets/voices/mert-preview.wav'), feed: require('./assets/voices/mert-feed.wav'), play: require('./assets/voices/mert-play.wav') },
+  mini: { preview: require('./assets/voices/mini-preview.wav'), feed: require('./assets/voices/mini-feed.wav'), play: require('./assets/voices/mini-play.wav') },
+  robot: { preview: require('./assets/voices/robot-preview.wav'), feed: require('./assets/voices/robot-feed.wav'), play: require('./assets/voices/robot-play.wav') },
+  uyku: { preview: require('./assets/voices/uyku-preview.wav'), feed: require('./assets/voices/uyku-feed.wav'), play: require('./assets/voices/uyku-play.wav') },
+};
+
+function VoicePicker({ c, selected, onSelect }: { c: typeof light; selected: string; onSelect: (profile: VoiceProfile) => void }) {
+  return (
+    <View style={styles.voiceSection}>
+      <View style={styles.voiceSectionHead}>
+        <View>
+          <Text style={[styles.settingLabel, styles.voiceSettingLabel, { color: c.muted }]}>PET SESİ</Text>
+          <Text style={[styles.voiceHint, { color: c.muted }]}>Bir profile dokunarak seç ve önizle.</Text>
+        </View>
+        <View style={[styles.voiceCountPill, { backgroundColor: c.cyanSoft }]}>
+          <Ionicons name="volume-high" size={12} color="#008DAA" />
+          <Text style={styles.voiceCountText}>10 GERÇEK SES</Text>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.voiceScroll}>
+        {voiceProfiles.map((profile) => {
+          const active = selected === profile.id;
+          return (
+            <Pressable key={profile.id} onPress={() => onSelect(profile)} style={[styles.voiceCard, { backgroundColor: c.card, borderColor: active ? profile.color : c.line }]}>
+              <View style={styles.voiceCardTop}>
+                <View style={[styles.voiceIcon, { backgroundColor: `${profile.color}18` }]}>
+                  <Ionicons name={profile.icon} size={23} color={profile.color} />
+                </View>
+                <View style={[styles.voicePlay, { backgroundColor: active ? profile.color : c.input }]}>
+                  <Ionicons name="play" size={13} color={active ? '#fff' : c.muted} />
+                </View>
+              </View>
+              <Text style={[styles.voiceTitle, { color: c.text }]}>{profile.title}</Text>
+              <Text style={[styles.voiceDesc, { color: c.muted }]} numberOfLines={1}>{profile.desc}</Text>
+              <View style={[styles.voiceGroupPill, { backgroundColor: `${profile.color}14` }]}>
+                <Text style={[styles.voiceGroupText, { color: profile.color }]}>{active ? 'SEÇİLİ' : profile.group.toUpperCase()}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+function PetCustomize({
+  c,
+  pet,
+  stats,
+  onStatsChange,
+  expression,
+  onExpressionChange,
+  onSound,
+  onPremium,
+}: {
+  c: typeof light;
+  pet: PetProfile;
+  stats: PetStats;
+  onStatsChange: (next: PetStats) => void;
+  expression: PetExpression;
+  onExpressionChange: (value: PetExpression) => void;
+  onSound: (sound: 'tap' | 'play') => void;
+  onPremium: (title: string) => void;
+}) {
   const [eyeColor, setEyeColor] = useState('#17353E');
-  const [expression, setExpression] = useState<PetExpression>('blink');
   const [motion, setMotion] = useState<PetMotion>('soft');
+  const [voiceProfile, setVoiceProfile] = useState('deniz');
+  const [lastAction, setLastAction] = useState('Seni gördüğü için mutlu');
+  const voicePlayer = useAudioPlayer(null);
+  const moodVisual = expressionVisuals[expression];
   const eyeChoices: Choice[] = [
     { title: 'Klasik', value: '#17353E', color: '#17353E' },
     { title: 'Okyanus', value: '#008FB5', color: '#00A9D5' },
-    { title: 'Menekşe', value: '#7C4FE0', color: '#8B62E8', premium: true },
-    { title: 'Kehribar', value: '#E58B29', color: '#F2A23B', premium: true },
+    { title: 'Menekşe', value: '#7C4FE0', color: '#8B62E8' },
+    { title: 'Kehribar', value: '#E58B29', color: '#F2A23B' },
+    { title: 'Zümrüt', value: '#138B69', color: '#20B987' },
+    { title: 'Mercan', value: '#E95372', color: '#F16C89' },
+    { title: 'Buz mavisi', value: '#4E91F5', color: '#76B8FF' },
+    { title: 'Gece', value: '#29396F', color: '#344C91' },
+    { title: 'Lavanta', value: '#A476DE', color: '#B992EA' },
+    { title: 'Limon', value: '#B79512', color: '#E3C32E' },
+    { title: 'Gül', value: '#CB4F8B', color: '#E86BA5' },
+    { title: 'Galaksi', value: '#5B46C8', color: '#6B55E5' },
   ];
   const expressionChoices: Choice[] = [
     { title: 'Doğal kırpma', value: 'blink', icon: 'eye' },
-    { title: 'Meraklı bakış', value: 'curious', icon: 'happy', premium: true },
-    { title: 'Yıldız göz', value: 'sparkle', icon: 'sparkles', premium: true },
+    { title: 'Meraklı bakış', value: 'curious', icon: 'happy' },
+    { title: 'Yıldız göz', value: 'sparkle', icon: 'sparkles' },
+    { title: 'Uykulu', value: 'sleepy', icon: 'moon' },
+    { title: 'Kalp göz', value: 'love', icon: 'heart' },
+    { title: 'Heyecanlı', value: 'excited', icon: 'flash' },
+    { title: 'Utangaç', value: 'shy', icon: 'flower' },
+    { title: 'Odaklı', value: 'focused', icon: 'scan' },
+    { title: 'Kahkaha', value: 'cheerful', icon: 'happy-outline' },
+    { title: 'Huzurlu', value: 'calm', icon: 'leaf' },
   ];
   const motionChoices: Choice[] = [
     { title: 'Sakin', value: 'still', icon: 'remove-circle-outline' },
     { title: 'Yumuşak titreşim', value: 'soft', icon: 'pulse' },
-    { title: 'Dans titreşimi', value: 'dance', icon: 'musical-notes', premium: true },
+    { title: 'Dans titreşimi', value: 'dance', icon: 'musical-notes' },
+    { title: 'Zıplama', value: 'bounce', icon: 'arrow-up-circle' },
+    { title: 'Sağa sola', value: 'sway', icon: 'swap-horizontal' },
+    { title: 'Nefes efekti', value: 'pulse', icon: 'heart-circle' },
   ];
   const sensors: { title: string; sub: string; icon: IconName; premium: boolean }[] = [
     { title: 'Dokunma tepkisi', sub: 'Başına dokununca göz kırpar', icon: 'hand-left', premium: false },
     { title: 'Yakınlık sensörü', sub: 'Yaklaştığında seni selamlar', icon: 'radio', premium: false },
     { title: 'Yüz takibi', sub: 'Bakışları seni odada takip eder', icon: 'scan', premium: true },
-    { title: 'Gece algılama', sub: 'Karanlıkta özel göz animasyonu', icon: 'moon', premium: true },
   ];
+  const playVoice = (profileId: string, action: VoiceAction) => {
+    const source = voiceAudioSources[profileId]?.[action];
+    if (!source) return;
+    voicePlayer.pause();
+    voicePlayer.replace(source);
+    voicePlayer.play();
+  };
+  const interact = (kind: 'feed' | 'play') => {
+    const happiness = Math.min(100, stats.happiness + 15);
+    const energy = kind === 'feed' ? Math.min(100, stats.energy + 10) : Math.max(0, stats.energy - 8);
+    onStatsChange({ ...stats, happiness, energy });
+    onExpressionChange(kind === 'feed' ? 'curious' : 'sparkle');
+    setMotion(kind === 'play' ? 'dance' : 'soft');
+    setLastAction(kind === 'feed' ? 'Mmm! Teşekkürler, çok lezzetliydi.' : 'Harika oyundu! Bir tur daha?');
+    playVoice(voiceProfile, kind);
+    Haptics.impactAsync(kind === 'feed' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+  };
+  const selectVoice = (profile: VoiceProfile) => {
+    setVoiceProfile(profile.id);
+    setLastAction(`${profile.title} gerçek ses profili seçildi`);
+    playVoice(profile.id, 'preview');
+    Haptics.selectionAsync().catch(() => undefined);
+  };
   return (
     <View>
       <View style={[styles.petStage, { backgroundColor: c.card, borderColor: c.line }]}>
-        <View style={styles.stageGlow} />
+        <PetMoodAura color={eyeColor} expression={expression} />
+        <View style={[styles.moodChip, { backgroundColor: `${moodVisual.color}16`, borderColor: `${moodVisual.color}32` }]}>
+          <Ionicons name={moodVisual.icon} size={12} color={moodVisual.color} />
+          <Text style={[styles.moodChipText, { color: moodVisual.color }]}>{moodVisual.label}</Text>
+        </View>
         <View style={[styles.statusChip, { backgroundColor: pet.connected ? 'rgba(20,200,132,.1)' : 'rgba(241,163,67,.12)' }]}>
           <View style={[styles.pulseDot, { backgroundColor: pet.connected ? '#12C884' : '#F1A343' }]} />
           <Text style={[styles.statusText, { color: pet.connected ? '#16946A' : '#B27827' }]}>{pet.connected ? 'BAĞLI · %82' : 'DEMO PET'}</Text>
         </View>
-        <PetFace size={190} eyeColor={eyeColor} expression={expression} motion={motion} />
+        <Pressable onPress={() => { onExpressionChange(expression === 'blink' ? 'curious' : 'blink'); onSound('tap'); }}>
+          <PetFace size={190} eyeColor={eyeColor} expression={expression} motion={motion} />
+        </Pressable>
         <Text style={[styles.petName, { color: c.text }]}>{pet.name}</Text>
-        <Text style={[styles.petMood, { color: c.muted }]}>Değişiklikleri anında önizliyorsun</Text>
+        <Text style={[styles.petMood, { color: c.muted }]}>{lastAction}</Text>
+        <View style={[styles.robotSyncPill, { backgroundColor: c.cyanSoft }]}>
+          <Ionicons name="sync" size={12} color="#008CAA" />
+          <Text style={styles.robotSyncText}>ROBOT YÜZÜYLE CANLI SENKRON</Text>
+        </View>
+      </View>
+      <View style={styles.petStatsGrid}>
+        {[
+          { title: 'Mutluluk', value: stats.happiness, icon: 'heart' as IconName, color: '#EE658D' },
+          { title: 'Enerji', value: stats.energy, icon: 'flash' as IconName, color: '#F1A13C' },
+          { title: 'Batarya', value: stats.battery, icon: 'battery-half' as IconName, color: '#20B987' },
+        ].map((stat) => (
+          <View key={stat.title} style={[styles.petStatCard, { backgroundColor: c.card, borderColor: c.line }]}>
+            <View style={styles.petStatTop}>
+              <Ionicons name={stat.icon} size={17} color={stat.color} />
+              <Text style={[styles.petStatValue, { color: c.text }]}>{stat.value}%</Text>
+            </View>
+            <Text style={[styles.petStatLabel, { color: c.muted }]}>{stat.title}</Text>
+            <View style={[styles.petStatTrack, { backgroundColor: c.input }]}>
+              <View style={[styles.petStatFill, { backgroundColor: stat.color, width: `${stat.value}%` }]} />
+            </View>
+          </View>
+        ))}
+      </View>
+      <View style={styles.petActionRow}>
+        <Pressable onPress={() => interact('feed')} style={({ pressed }) => [styles.petActionCard, { backgroundColor: c.card, borderColor: '#F1A13C' }, pressed && { transform: [{ scale: 0.98 }] }]}>
+          <View style={[styles.petActionIcon, { backgroundColor: '#F1A13C18' }]}><Ionicons name="restaurant" size={27} color="#F1A13C" /></View>
+          <View style={styles.flexOne}><Text style={[styles.petActionTitle, { color: c.text }]}>Besle</Text><Text style={[styles.petActionSub, { color: c.muted }]}>+15 mutluluk · +10 enerji</Text></View>
+        </Pressable>
+        <Pressable onPress={() => interact('play')} style={({ pressed }) => [styles.petActionCard, { backgroundColor: c.card, borderColor: '#7658DF' }, pressed && { transform: [{ scale: 0.98 }] }]}>
+          <View style={[styles.petActionIcon, { backgroundColor: '#7658DF18' }]}><Ionicons name="game-controller" size={27} color="#7658DF" /></View>
+          <View style={styles.flexOne}><Text style={[styles.petActionTitle, { color: c.text }]}>Oyna</Text><Text style={[styles.petActionSub, { color: c.muted }]}>+15 mutluluk · -8 enerji</Text></View>
+        </Pressable>
       </View>
       <View style={styles.personalizeHead}>
         <View>
           <Text style={[styles.sectionTitle, { color: c.text }]}>Petini kişiselleştir</Text>
-          <Text style={[styles.personalizeSub, { color: c.muted }]}>Göz, hareket ve sensör tepkilerini seç.</Text>
+          <Text style={[styles.personalizeSub, { color: c.muted }]}>Göz, animasyon, hareket ve ses karakterini seç.</Text>
         </View>
         <View style={styles.plusPill}>
           <Ionicons name="sparkles" size={12} color="#704BBE" />
@@ -655,8 +966,9 @@ function PetCustomize({ c, pet, onPremium }: { c: typeof light; pet: PetProfile;
         </View>
       </View>
       <ChoiceRow title="GÖZ RENGİ" choices={eyeChoices} selected={eyeColor} c={c} onChange={setEyeColor} onPremium={onPremium} />
-      <ChoiceRow title="GÖZ ANİMASYONU" choices={expressionChoices} selected={expression} c={c} onChange={(value) => setExpression(value as PetExpression)} onPremium={onPremium} />
+      <ChoiceRow title="GÖZ ANİMASYONU" choices={expressionChoices} selected={expression} c={c} onChange={(value) => onExpressionChange(value as PetExpression)} onPremium={onPremium} />
       <ChoiceRow title="TİTREME STİLİ" choices={motionChoices} selected={motion} c={c} onChange={(value) => setMotion(value as PetMotion)} onPremium={onPremium} />
+      <VoicePicker c={c} selected={voiceProfile} onSelect={selectVoice} />
       <Text style={[styles.settingLabel, { color: c.muted }]}>SENSÖR TEPKİLERİ</Text>
       <View style={[styles.settingGroup, { backgroundColor: c.card, borderColor: c.line }]}>
         {sensors.map((sensor, index) => (
@@ -685,7 +997,6 @@ function PetCustomize({ c, pet, onPremium }: { c: typeof light; pet: PetProfile;
 
 function Settings({ c, theme, toggleTheme, preferences, onPreferencesChange, onLogout, onSelect }: { c: typeof light; theme: Theme; toggleTheme: () => void; preferences: AppPreferences; onPreferencesChange: (next: AppPreferences) => void; onLogout: () => void; onSelect: (title: string) => void }) {
   const accountRows: { title: string; sub: string; icon: IconName; color: string }[] = [
-    { title: 'Kontrol paneli', sub: 'Cihazlar, kullanım ve bağlantılar', icon: 'options', color: '#00A9C9' },
     { title: 'Şifre ve giriş', sub: 'Şifreni ve giriş yöntemlerini yönet', icon: 'key', color: '#7B5DDE' },
     { title: 'Gizlilik ve güvenlik', sub: 'PIN, izinler ve veri tercihleri', icon: 'shield-checkmark', color: '#22AE7D' },
     { title: 'Lumina Plus', sub: 'Plan, ödeme ve satın alımları geri yükle', icon: 'diamond', color: '#E36191' },
@@ -718,6 +1029,30 @@ function Settings({ c, theme, toggleTheme, preferences, onPreferencesChange, onL
         <Pressable onPress={() => onSelect('Profili düzenle')}>
           <Ionicons name="create-outline" size={22} color={c.muted} />
         </Pressable>
+      </View>
+      <View style={styles.settingsTitleRow}>
+        <View style={styles.settingsTitleCopy}>
+          <Text style={[styles.sectionTitle, styles.settingsDashboardTitle, { color: c.text }]}>Kontrol paneli</Text>
+          <Text style={[styles.settingsDashboardSub, { color: c.muted }]}>Lumina ve robot durumuna hızlı bakış</Text>
+        </View>
+        <Pressable onPress={() => onSelect('Kontrol paneli')} style={[styles.settingsManageButton, { backgroundColor: c.cyanSoft }]}>
+          <Ionicons name="options" size={18} color="#00A0BF" />
+        </Pressable>
+      </View>
+      <View style={styles.settingsStats}>
+        {[
+          { label: 'ROBOT', value: 'Bağlı', icon: 'hardware-chip' as IconName, color: '#20B987' },
+          { label: 'BATARYA', value: '%82', icon: 'battery-half' as IconName, color: '#00A9C9' },
+          { label: 'RUTİNLER', value: '4 aktif', icon: 'timer' as IconName, color: '#7B5DDE' },
+        ].map((stat) => (
+          <Pressable key={stat.label} onPress={() => onSelect('Kontrol paneli')} style={[styles.settingsStatCard, { backgroundColor: c.card, borderColor: c.line }]}>
+            <Ionicons name={stat.icon} size={21} color={stat.color} />
+            <View style={styles.settingsStatCopy}>
+              <Text style={[styles.settingsStatValue, { color: c.text }]} numberOfLines={1} adjustsFontSizeToFit>{stat.value}</Text>
+              <Text style={[styles.settingsStatLabel, { color: c.muted }]} numberOfLines={1} adjustsFontSizeToFit>{stat.label}</Text>
+            </View>
+          </Pressable>
+        ))}
       </View>
       <Text style={[styles.settingLabel, { color: c.muted }]}>GÖRÜNÜM</Text>
       <View style={[styles.settingGroup, { backgroundColor: c.card, borderColor: c.line }]}>
@@ -1161,6 +1496,9 @@ function AppShell({ onLogout, theme, setTheme, pet }: { onLogout: () => void; th
   const [selectedMode, setSelectedMode] = useState<ModeItem | null>(null);
   const [selectedSetting, setSelectedSetting] = useState<string | null>(null);
   const [modal, setModal] = useState<{ title: string; premium?: boolean } | null>(null);
+  const [robotExpression, setRobotExpression] = useState<PetExpression>('blink');
+  const [petStats, setPetStats] = useState<PetStats>({ happiness: 72, energy: 64, battery: 82 });
+  const [ambientSound, setAmbientSound] = useState<AmbientSound>('none');
   const [preferences, setPreferences] = useState<AppPreferences>({
     notifications: true,
     autoConnect: true,
@@ -1169,6 +1507,32 @@ function AppShell({ onLogout, theme, setTheme, pet }: { onLogout: () => void; th
     reduceMotion: false,
     language: 'Türkçe',
   });
+  const tapPlayer = useAudioPlayer(require('./assets/sounds/tap.wav'));
+  const playPlayer = useAudioPlayer(require('./assets/sounds/play.wav'));
+  const rainPlayer = useAudioPlayer(require('./assets/sounds/rain.wav'));
+  const firePlayer = useAudioPlayer(require('./assets/sounds/fire.wav'));
+  useEffect(() => {
+    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' }).catch(() => undefined);
+    rainPlayer.loop = true;
+    firePlayer.loop = true;
+  }, [firePlayer, rainPlayer]);
+  useEffect(() => {
+    if (ambientSound === 'rain') {
+      firePlayer.pause();
+      rainPlayer.play();
+    } else if (ambientSound === 'fire') {
+      rainPlayer.pause();
+      firePlayer.play();
+    } else {
+      rainPlayer.pause();
+      firePlayer.pause();
+    }
+  }, [ambientSound, firePlayer, rainPlayer]);
+  const playSound = (sound: 'tap' | 'play') => {
+    if (!preferences.appSounds) return;
+    const player = sound === 'tap' ? tapPlayer : playPlayer;
+    player.seekTo(0).then(() => player.play()).catch(() => undefined);
+  };
   const { width } = useWindowDimensions();
   const wide = width >= 760;
   const compact = width < 390;
@@ -1182,11 +1546,11 @@ function AppShell({ onLogout, theme, setTheme, pet }: { onLogout: () => void; th
   };
   const content = () => {
     if (!tab) return <WelcomeHome c={c} pet={pet} compact={compact} onNavigate={chooseTab} />;
-    if (tab === 'features' && selectedFeature) return <FeatureDetail feature={selectedFeature} c={c} onBack={() => setSelectedFeature(null)} onAction={(action) => setModal({ title: action })} />;
+    if (tab === 'features' && selectedFeature) return <FeatureExperience feature={selectedFeature} c={c} onBack={() => setSelectedFeature(null)} onToast={(message) => setModal({ title: message })} onRobotExpression={setRobotExpression} onSound={playSound} />;
     if (tab === 'features') return <Features c={c} wide={wide} onSelect={setSelectedFeature} />;
-    if (tab === 'modes' && selectedMode) return <ModeDetail mode={selectedMode} c={c} onBack={() => setSelectedMode(null)} />;
+    if (tab === 'modes' && selectedMode) return <ModeDetail mode={selectedMode} c={c} onBack={() => setSelectedMode(null)} expression={robotExpression} onExpressionChange={setRobotExpression} ambientSound={ambientSound} onAmbientSound={setAmbientSound} />;
     if (tab === 'modes') return <Modes c={c} onSelect={(modeTitle) => setSelectedMode(modeData.find((mode) => mode.title === modeTitle) ?? null)} />;
-    if (tab === 'pet') return <PetCustomize c={c} pet={pet} onPremium={(item) => setModal({ title: item, premium: true })} />;
+    if (tab === 'pet') return <PetCustomize c={c} pet={pet} stats={petStats} onStatsChange={setPetStats} expression={robotExpression} onExpressionChange={setRobotExpression} onSound={playSound} onPremium={(item) => setModal({ title: item, premium: true })} />;
     if (selectedSetting) return <SettingDetail title={selectedSetting} c={c} onBack={() => setSelectedSetting(null)} />;
     return <Settings c={c} theme={theme} toggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')} preferences={preferences} onPreferencesChange={setPreferences} onLogout={onLogout} onSelect={setSelectedSetting} />;
   };
@@ -1216,7 +1580,7 @@ function AppShell({ onLogout, theme, setTheme, pet }: { onLogout: () => void; th
               <View style={[styles.pulseDot, { backgroundColor: pet.connected ? '#12C884' : '#F1A343' }]} />
               <View>
                 <Text style={[styles.connectedTitle, { color: c.text }]}>{pet.connected ? `${pet.name} bağlı` : 'Demo pet'}</Text>
-                <Text style={[styles.connectedSub, { color: c.muted }]}>{pet.connected ? 'Pil %82' : 'Bağlantı yok'}</Text>
+                <Text style={[styles.connectedSub, { color: c.muted }]}>{pet.connected ? `Pil %${petStats.battery}` : 'Bağlantı yok'}</Text>
               </View>
             </View>
           </View>
@@ -1302,7 +1666,10 @@ const styles = StyleSheet.create({
   eyeRow: { flexDirection: 'row', gap: 23, height: 23, alignItems: 'center' },
   eye: { width: 15, borderRadius: 10, alignItems: 'flex-end', padding: 3, overflow: 'hidden' },
   eyeGlint: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#fff' },
+  cheerfulEye: { width: 22, height: 12, borderTopWidth: 4, borderRadius: 12, transform: [{ rotate: '180deg' }] },
   mouth: { width: 25, height: 13, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, backgroundColor: '#17353E', marginTop: 10, alignItems: 'center', overflow: 'hidden' },
+  sleepyMouth: { width: 15, height: 6, borderRadius: 6, backgroundColor: '#46626B' },
+  excitedMouth: { width: 31, height: 18 },
   tongue: { width: 12, height: 7, borderRadius: 7, backgroundColor: '#FF7899', marginTop: 7 },
   sparkleBadge: { position: 'absolute', top: 12, right: 12 },
   petGlow: { position: 'absolute', bottom: 3, borderRadius: 99, backgroundColor: 'rgba(0,189,232,.18)', transform: [{ scaleY: 0.4 }] },
@@ -1397,22 +1764,54 @@ const styles = StyleSheet.create({
   modeDetailIcon: { width: 58, height: 58, borderRadius: 19, backgroundColor: 'rgba(255,255,255,.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,.24)', alignItems: 'center', justifyContent: 'center' },
   modeLivePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 99 },
   modeLiveText: { color: '#fff', fontSize: 8.5, fontWeight: '900', letterSpacing: 0.7 },
+  modeHeroContent: { flexDirection: 'row', alignItems: 'flex-end' },
+  modeHeroCopy: { flex: 1, zIndex: 2 },
+  modePetPreview: { width: 108, height: 98, alignItems: 'center', justifyContent: 'center', marginRight: -5, marginBottom: -5 },
   modeDetailTitle: { color: '#fff', fontSize: 28, fontWeight: '900', letterSpacing: -0.6 },
   modeDetailHeadline: { color: 'rgba(255,255,255,.82)', fontSize: 12.5, lineHeight: 19, marginTop: 5, maxWidth: 420 },
   modeMasterCard: { minHeight: 79, borderWidth: 1, borderRadius: 23, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 21 },
   modeSegment: { height: 50, borderRadius: 17, padding: 4, flexDirection: 'row', marginBottom: 19 },
   modeSegmentOption: { flex: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   modeSegmentText: { fontSize: 11, fontWeight: '800' },
+  ambientGrid: { flexDirection: 'row', gap: 9, marginBottom: 21 },
+  ambientCard: { flex: 1, minHeight: 132, borderWidth: 1.5, borderRadius: 22, padding: 12, alignItems: 'center' },
+  ambientIcon: { width: 45, height: 45, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginBottom: 9 },
+  ambientTitle: { fontSize: 11.5, fontWeight: '800' },
+  ambientSub: { fontSize: 8.5, lineHeight: 12, textAlign: 'center', marginTop: 3 },
+  ambientActive: { position: 'absolute', top: 8, right: 8, width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   routineCard: { minHeight: 78, borderWidth: 1, borderRadius: 23, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 17 },
   routineIcon: { width: 46, height: 46, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   smallEditButton: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   modeSaveButton: { height: 54, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   petStage: { borderWidth: 1, borderRadius: 32, minHeight: 310, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 28 },
   stageGlow: { position: 'absolute', width: 260, height: 260, borderRadius: 150, backgroundColor: 'rgba(0,210,255,.08)' },
+  petAuraWrap: { position: 'absolute', width: 278, height: 278, alignItems: 'center', justifyContent: 'center' },
+  petAuraOuter: { position: 'absolute', width: 250, height: 250, borderRadius: 125, borderWidth: 1.5 },
+  petAuraMiddle: { position: 'absolute', width: 218, height: 218, borderRadius: 109, borderWidth: 1 },
+  petAuraCore: { width: 190, height: 190, borderRadius: 95 },
+  petAuraSpark: { position: 'absolute', width: 6, height: 6, borderRadius: 3, opacity: .7 },
+  petAuraSparkOne: { top: 34, right: 52 },
+  petAuraSparkTwo: { bottom: 52, left: 35, width: 4, height: 4 },
+  moodChip: { position: 'absolute', top: 18, left: 18, minHeight: 30, borderRadius: 99, borderWidth: 1, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  moodChipText: { fontSize: 8, fontWeight: '900', letterSpacing: .65 },
   statusChip: { position: 'absolute', top: 18, right: 18, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 99 },
   statusText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
   petName: { fontSize: 21, fontWeight: '800', marginTop: -8 },
   petMood: { fontSize: 12, marginTop: 4 },
+  robotSyncPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 99, marginTop: 10 },
+  robotSyncText: { color: '#008CAA', fontSize: 7.5, fontWeight: '900', letterSpacing: .55 },
+  petStatsGrid: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  petStatCard: { flex: 1, minHeight: 98, borderWidth: 1, borderRadius: 20, padding: 11 },
+  petStatTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  petStatValue: { fontSize: 15, fontWeight: '900' },
+  petStatLabel: { fontSize: 9, fontWeight: '700', marginTop: 8 },
+  petStatTrack: { height: 5, borderRadius: 4, marginTop: 8, overflow: 'hidden' },
+  petStatFill: { height: 5, borderRadius: 4 },
+  petActionRow: { gap: 10, marginBottom: 27 },
+  petActionCard: { minHeight: 82, borderWidth: 1.5, borderRadius: 23, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  petActionIcon: { width: 50, height: 50, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  petActionTitle: { fontSize: 15, fontWeight: '900' },
+  petActionSub: { fontSize: 9.5, marginTop: 4 },
   personalizeHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
   personalizeSub: { fontSize: 12, marginTop: 4 },
   plusPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EADFFF', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 99 },
@@ -1425,6 +1824,21 @@ const styles = StyleSheet.create({
   lockBadge: { flexDirection: 'row', gap: 3, alignItems: 'center', backgroundColor: '#EADFFF', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 99 },
   lockText: { fontSize: 7.5, fontWeight: '900', color: '#7550C4', letterSpacing: 0.5 },
   freeText: { fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
+  voiceSection: { marginBottom: 23 },
+  voiceSectionHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 10, paddingHorizontal: 4 },
+  voiceSettingLabel: { marginLeft: 0, marginBottom: 2, marginTop: 0 },
+  voiceHint: { fontSize: 9.5, lineHeight: 14 },
+  voiceCountPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 99 },
+  voiceCountText: { color: '#008DAA', fontSize: 7.5, fontWeight: '900', letterSpacing: .6 },
+  voiceScroll: { gap: 10, paddingRight: 20 },
+  voiceCard: { width: 144, minHeight: 154, borderWidth: 1.5, borderRadius: 23, padding: 13 },
+  voiceCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  voiceIcon: { width: 45, height: 45, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  voicePlay: { width: 30, height: 30, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  voiceTitle: { fontSize: 13, fontWeight: '900', marginTop: 11 },
+  voiceDesc: { fontSize: 9.5, marginTop: 3 },
+  voiceGroupPill: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 4, borderRadius: 99, marginTop: 10 },
+  voiceGroupText: { fontSize: 7.5, fontWeight: '900', letterSpacing: .55 },
   sensorRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, gap: 13 },
   profileCard: { borderWidth: 1, borderRadius: 28, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 27 },
   profileAvatar: { width: 66, height: 66, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
@@ -1432,6 +1846,16 @@ const styles = StyleSheet.create({
   profileMail: { fontSize: 11.5, marginTop: 4 },
   premiumChip: { alignSelf: 'flex-start', flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: '#EADFFF', paddingHorizontal: 7, paddingVertical: 4, borderRadius: 99, marginTop: 7 },
   premiumText: { fontSize: 9, fontWeight: '800', color: '#6C49B3' },
+  settingsTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 13 },
+  settingsTitleCopy: { flex: 1, minWidth: 0 },
+  settingsDashboardTitle: { marginBottom: 0 },
+  settingsDashboardSub: { fontSize: 10.5, lineHeight: 15, marginTop: 4 },
+  settingsManageButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  settingsStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginBottom: 24 },
+  settingsStatCard: { flexGrow: 1, flexBasis: '47%', minHeight: 84, borderWidth: 1, borderRadius: 20, paddingHorizontal: 13, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  settingsStatCopy: { flex: 1, minWidth: 0 },
+  settingsStatValue: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  settingsStatLabel: { fontSize: 7.5, lineHeight: 11, fontWeight: '900', letterSpacing: .55, marginTop: 2 },
   settingLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginLeft: 5, marginBottom: 9, marginTop: 4 },
   settingGroup: { borderWidth: 1, borderRadius: 25, overflow: 'hidden', marginBottom: 22 },
   settingRow: { minHeight: 74, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 9, gap: 13 },
